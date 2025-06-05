@@ -12,6 +12,7 @@ import difflib
 import qrcode
 from io import BytesIO
 import traceback
+from dotenv import load_dotenv
 
 class QRStates(StatesGroup):
     waiting_for_qr_text = State()
@@ -139,7 +140,9 @@ def log_user_state(user_id):
         values_str = ", ".join([f"{k}={v}" for k, v in values.items()])
         log_message("DEBUG", user_id, action="Значения", details=values_str)
 
-bot = Bot(token="7813948080:AAGH0qdzgzJdWYl80wYiSp5omPcm95zIOYo")
+load_dotenv()
+
+bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 
 user_data = {}
@@ -901,6 +904,12 @@ def find_similar_category(name, values, similarity_threshold=0.9):
 async def main():
     try:
         log_message("SYSTEM", action="Бот запущен", details="Начало работы")
+        
+        bot_token = os.getenv("BOT_TOKEN")
+        if not bot_token:
+            log_message("ERROR", action="Ошибка конфигурации", details="BOT_TOKEN не найден в переменных окружения. Убедитесь, что вы создали файл .env с BOT_TOKEN=<ВАШ_ТОКЕН>")
+            print(f"{Colors.RED}Ошибка: BOT_TOKEN не найден. Пожалуйста, создайте файл .env и добавьте BOT_TOKEN=<ВАШ_ТОКЕН>{Colors.RESET}")
+            return
         
         load_all_user_data()
 
