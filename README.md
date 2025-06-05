@@ -38,11 +38,6 @@ python -m venv venv
     ```bash
     .\venv\Scripts\activate
     ```
-*   **macOS/Linux:**
-    ```bash
-    source venv/bin/activate
-    ```
-
 ### Шаг 3: Установка зависимостей
 Установите необходимые библиотеки из `requirements.txt`:
 ```bash
