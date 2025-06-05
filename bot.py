@@ -924,4 +924,4 @@ if __name__ == '__main__':
     print(f"{Colors.CYAN}Запуск: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Colors.RESET}\n")
     
     log_message("SYSTEM", action="Инициализация", details="Запуск скрипта")
-    asyncio.run(main())
+    asyncio.run(main()) 
