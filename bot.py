@@ -1,20 +1,12 @@
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 import asyncio
 import re
 import datetime
 import os
 import json
 import difflib
-import qrcode
-from io import BytesIO
-import traceback
-
-class QRStates(StatesGroup):
-    waiting_for_qr_text = State()
 
 class Colors:
     RESET = "\033[0m"
@@ -40,12 +32,9 @@ class Colors:
     BG_WHITE = "\033[47m"
 
 LOG_DIR = "logs"
-QR_CODE_DIR = "qrcodes"
-LOG_FILE = os.path.join(LOG_DIR, f"bot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-USER_DATA_FILE = "user_data.json"
+LOG_FILE = os.path.join(LOG_DIR, f"bot_{datetime.datetime.now().strftime('%Y%m%d')}.log")
 
 os.makedirs(LOG_DIR, exist_ok=True)
-os.makedirs(QR_CODE_DIR, exist_ok=True)
 
 def log_message(message_type, user_id=None, username=None, action=None, details=None):
     current_time = datetime.datetime.now().strftime("%H:%M:%S")
@@ -75,7 +64,10 @@ def log_message(message_type, user_id=None, username=None, action=None, details=
         log_str += f" | {action}"
     
     if details:
-        log_str += f": {details}"
+        if len(details) > 30:
+            log_str += f": {details[:27]}..."
+        else:
+            log_str += f": {details}"
     
     print(log_str)
     
@@ -90,38 +82,6 @@ def log_message(message_type, user_id=None, username=None, action=None, details=
     
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(file_log, ensure_ascii=False) + "\n")
-
-def load_all_user_data():
-    global user_data
-    try:
-        if os.path.exists(USER_DATA_FILE):
-            with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
-                data_from_file = json.load(f)
-                user_data = {int(k): v for k, v in data_from_file.items()}
-                for uid in user_data:
-                    if 'qr_codes' not in user_data[uid]:
-                        user_data[uid]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-                    if 'next_qr_id' not in user_data[uid]['qr_codes']: 
-                         user_data[uid]['qr_codes']['next_qr_id'] = 1
-                    if 'codes' not in user_data[uid]['qr_codes']:
-                         user_data[uid]['qr_codes']['codes'] = []
-
-                log_message("SYSTEM", action="Загрузка данных", details=f"Данные пользователей загружены из {USER_DATA_FILE}")
-        else:
-            user_data = {}
-            log_message("SYSTEM", action="Загрузка данных", details=f"Файл {USER_DATA_FILE} не найден, используется пустая база.")
-    except (json.JSONDecodeError, IOError) as e:
-        user_data = {}
-        log_message("ERROR", action="Загрузка данных", details=f"Ошибка загрузки {USER_DATA_FILE}: {e}. Используется пустая база.")
-
-def save_all_user_data():
-    global user_data
-    try:
-        data_to_save = {str(k): v for k, v in user_data.items()}
-        with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data_to_save, f, ensure_ascii=False, indent=4)
-    except IOError as e:
-        log_message("ERROR", action="Сохранение данных", details=f"Ошибка сохранения в {USER_DATA_FILE}: {e}")
 
 def log_user_state(user_id):
     if user_id not in user_data:
@@ -148,18 +108,7 @@ def get_keyboard():
     buttons = [
         [KeyboardButton(text="📝 Новый подсчет")],
         [KeyboardButton(text="🔄 Очистить")],
-        [KeyboardButton(text="❓ Инструкция")],
-        [KeyboardButton(text="🖼️ QR Коды")]
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-    return keyboard
-
-def get_qr_keyboard():
-    buttons = [
-        [KeyboardButton(text="➕ Создать QR")],
-        [KeyboardButton(text="📋 Список QR")],
-        [KeyboardButton(text="🗑️ Удалить QR")],
-        [KeyboardButton(text="⬅️ Назад")]
+        [KeyboardButton(text="❓ Инструкция")]
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     return keyboard
@@ -169,35 +118,12 @@ async def send_welcome(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     
-    if user_id not in user_data:
-        user_data[user_id] = {
-            'count': 0,
-            'values': {},
-            'qr_codes': {'next_qr_id': 1, 'codes': []}
-        }
-        log_message("INFO", user_id, username, action="Создан новый пользователь", 
-                   details="Инициализированы данные, включая раздел QR")
-    elif 'qr_codes' not in user_data[user_id]:
-        user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-        log_message("INFO", user_id, username, action="Обновление пользователя", 
-                   details="Добавлен раздел QR для существующего пользователя")
-
-    if 'qr_codes' not in user_data[user_id]:
-        user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-    if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-        user_data[user_id]['qr_codes']['next_qr_id'] = 1
-    if 'codes' not in user_data[user_id]['qr_codes']:
-        user_data[user_id]['qr_codes']['codes'] = []
-
-    save_all_user_data()
-
     log_message("COMMAND", user_id, username, action="Выполнена команда /start")
     
     await message.reply(
-        "Привет! Я бот для помощи в подсчете сумм и QR-кодов. Используйте кнопки ниже для управления:\n\n"
+        "Привет! Я бот для подсчета сумм. Используйте кнопки ниже для управления:\n\n"
         "📝 Новый подсчет - начать новый цикл подсчета\n"
         "🔄 Очистить - удалить последнее сообщение и вычесть его значения из общей суммы\n\n"
-        "🖼️ QR Коды - перейти в раздел управления QR-кодами.\n\n"
         "Отправляйте мне сообщения в формате:\nНазвание - число",
         reply_markup=get_keyboard()
     )
@@ -261,13 +187,11 @@ async def clear_command(message: types.Message):
                     log_message("INFO", user_id, username, action="Удалено последнее сообщение", 
                                details=f"Удалены значения: {', '.join(removed_values) if removed_values else 'нет'}")
                     
+                    log_user_state(user_id)
+                    
                     msg_count = user_data[user_id]['count']
                     if msg_count == 0:
                         user_data[user_id]['values'] = {}
-
-                    log_user_state(user_id)
-                    save_all_user_data() 
-                    if msg_count == 0:
                         await message.reply("Последнее сообщение удалено. История пуста. Начните новый подсчет.", reply_markup=get_keyboard())
                     else:
                         progress_bar = create_progress_bar(msg_count, 6)
@@ -292,9 +216,11 @@ async def clear_command(message: types.Message):
             await message.reply("История пуста! Нечего удалять.", reply_markup=get_keyboard())
     
     except Exception as e:
+        import traceback
         log_message("ERROR", user_id, username, action="Ошибка при удалении", 
                    details=str(e))
         
+        tb = traceback.format_exc()
         print(f"{Colors.RED}Ошибка при очистке данных:{Colors.RESET}\n{tb}")
         
         await message.reply("Произошла ошибка при удалении данных. Пожалуйста, попробуйте еще раз.", 
@@ -307,28 +233,15 @@ async def new_count(message: types.Message):
     
     log_message("COMMAND", user_id, username, action="Нажата кнопка 'Новый подсчет'")
     
-    current_qr_data = {}
-    if user_id in user_data and 'qr_codes' in user_data[user_id]:
-        current_qr_data = user_data[user_id]['qr_codes']
-
     user_data[user_id] = {
         'count': 0,
-        'values': {},
-        'qr_codes': current_qr_data
+        'values': {}
     }
     
-    if not user_data[user_id]['qr_codes']:
-        user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-    if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-        user_data[user_id]['qr_codes']['next_qr_id'] = 1
-    if 'codes' not in user_data[user_id]['qr_codes']:
-        user_data[user_id]['qr_codes']['codes'] = []
-
     log_message("INFO", user_id, username, action="Начат новый подсчет", 
-               details="Данные пользователя сброшены (кроме QR)")
+               details="Данные пользователя сброшены")
     
     log_user_state(user_id)
-    save_all_user_data()
     
     await message.reply(
         "Начат новый подсчет!\nОтправьте мне данные в формате:\nНазвание - число",
@@ -344,14 +257,10 @@ async def show_instructions(message: types.Message):
     
     instructions = (
         "Инструкция по использованию бота:\n\n"
-        "При каждом обновлении бота, нужно будет нажать ➡️ /start\n\n"
-        "📝 Новый подсчет - начать новый цикл подсчета (данные QR-кодов сохраняются).\n\n"
-        "🔄 Очистить - удалить последнее сообщение и вычесть его значения из общей суммы.\n\n"
-        "🖼️ QR Коды - перейти в раздел управления QR-кодами.\n\n"
-        "  В разделе QR Кодов:\n"
-        "  ➕ Создать QR - сгенерировать новый QR-код по вашему тексту.\n"
-        "  📋 Список QR - показать список созданных QR-кодов и отправить выбранный.\n\n"
-        "Отправляйте мне сообщения для подсчета в формате:\nНазвание - число\n\n"
+        "📝 Новый подсчет - начать новый цикл подсчета\n"
+        "🔄 Очистить - удалить последнее сообщение и вычесть его значения из общей суммы\n\n"
+        "Отправляйте мне сообщения в формате:\n"
+        "Название - число\n\n"
         "Бот автоматически суммирует значения по категориям и умеет распознавать похожие названия "
         "(например, \"АТТ ПБ экзотик 0,25\" и \"АТТ ПБ экзотик 0,25л\" будут считаться одной категорией).\n\n"
         "Нулевые значения сохраняются и отображаются для всех категорий.\n\n"
@@ -404,322 +313,12 @@ def parse_line(line):
     
     return None, None
 
-@dp.message(lambda message: message.text == "🖼️ QR Коды")
-async def qr_codes_section(message: types.Message, state: FSMContext):
-    await state.clear()
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    log_message("COMMAND", user_id, username, action="Переход в раздел 'QR Коды'")
-    await message.reply("Вы в разделе QR-кодов. Выберите действие:", reply_markup=get_qr_keyboard())
-
-@dp.message(lambda message: message.text == "⬅️ Назад")
-async def go_back_to_main_menu(message: types.Message, state: FSMContext):
-    await state.clear()
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    log_message("COMMAND", user_id, username, action="Возврат в главное меню из QR")
-    await message.reply("Возврат в главное меню.", reply_markup=get_keyboard())
-
-@dp.message(lambda message: message.text == "➕ Создать QR")
-async def request_qr_text_handler(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    log_message("COMMAND", user_id, username, action="Нажата кнопка 'Создать QR'")
-    await state.set_state(QRStates.waiting_for_qr_text)
-    await message.reply("Введите текст, который вы хотите преобразовать в QR-код:", reply_markup=types.ReplyKeyboardRemove())
-
-@dp.message(QRStates.waiting_for_qr_text)
-async def generate_qr_code_handler(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    qr_text = message.text
-
-    if not qr_text:
-        log_message("WARNING", user_id, username, action="Создание QR", details="Пустой текст для QR")
-        await message.reply("Текст для QR-кода не может быть пустым. Попробуйте еще раз.", reply_markup=get_qr_keyboard())
-        await state.clear()
-        return
-
-    log_message("MESSAGE", user_id, username, action="Получен текст для QR", details=qr_text)
-
-    try:
-        if user_id not in user_data:
-             user_data[user_id] = {'count': 0, 'values': {}, 'qr_codes': {'next_qr_id': 1, 'codes': []}}
-        elif 'qr_codes' not in user_data[user_id]:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-        if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['next_qr_id'] = 1
-        if 'codes' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['codes'] = []
-
-        existing_qr = None
-        for qr_code_item in user_data[user_id]['qr_codes']['codes']:
-            if qr_code_item['text'] == qr_text:
-                existing_qr = qr_code_item
-                break
-        
-        if existing_qr:
-            log_message("INFO", user_id, username, action="Создание QR", details=f"Найден существующий QR с текстом: {qr_text}")
-            try:
-                filepath = existing_qr['filepath']
-                if not os.path.exists(filepath):
-                    log_message("WARNING", user_id, username, action="Создание QR", details=f"Файл для существующего QR не найден: {filepath}. Попытка регенерации.")
-                    img_regen = qrcode.make(qr_text)
-                    img_regen.save(filepath)
-                    log_message("INFO", user_id, username, action="QR регенерирован для существующей записи", details=f"Файл: {filepath}")
-
-                with open(filepath, "rb") as qr_file_to_send:
-                    qr_image_file = BufferedInputFile(qr_file_to_send.read(), filename=os.path.basename(filepath))
-                    await message.reply_photo(photo=qr_image_file, caption=f"У вас уже есть QR-код для текста:\n'{qr_text}'", reply_markup=get_qr_keyboard())
-            except Exception as e_send:
-                log_message("ERROR", user_id, username, action="Отправка существующего QR", details=str(e_send))
-                await message.reply(f"У вас уже есть QR-код для текста:\n'{qr_text}'\nНо произошла ошибка при его отправке. Вы можете найти его в списке.", reply_markup=get_qr_keyboard())
-            await state.clear()
-            return
-
-        qr_id = user_data[user_id]['qr_codes']['next_qr_id']
-        
-        img = qrcode.make(qr_text)
-        
-        filename = f"qr_user{user_id}_id{qr_id}.png"
-        filepath = os.path.join(QR_CODE_DIR, filename)
-        img.save(filepath)
-        log_message("INFO", user_id, username, action="QR-код сохранен в файл", details=f"Путь: {filepath}")
-
-        user_data[user_id]['qr_codes']['codes'].append({'id': qr_id, 'text': qr_text, 'filepath': filepath})
-        user_data[user_id]['qr_codes']['next_qr_id'] += 1
-        save_all_user_data()
-        
-        log_message("INFO", user_id, username, action="QR-код создан и информация сохранена", details=f"ID: {qr_id}, Текст: {qr_text}, Файл: {filepath}")
-
-        try:
-            with open(filepath, "rb") as qr_file_to_send:
-                qr_image_file = BufferedInputFile(qr_file_to_send.read(), filename=filename)
-                await message.reply_photo(photo=qr_image_file, caption=f"Ваш QR-код для текста:\n'{qr_text}'", reply_markup=get_qr_keyboard())
-        except FileNotFoundError:
-            log_message("ERROR", user_id, username, action="Отправка QR", details=f"Файл не найден: {filepath}")
-            await message.reply("QR-код был создан и сохранен, но произошла ошибка при его отправке. Попробуйте запросить его из списка.", reply_markup=get_qr_keyboard())
-            
-    except Exception as e:
-        log_message("ERROR", user_id, username, action="Ошибка генерации/сохранения QR", details=str(e))
-        await message.reply("Произошла ошибка при создании или сохранении QR-кода. Попробуйте еще раз.", reply_markup=get_qr_keyboard())
-    
-    await state.clear()
-
-@dp.message(lambda message: message.text == "🗑️ Удалить QR")
-async def request_delete_qr_handler(message: types.Message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    log_message("COMMAND", user_id, username, action="Нажата кнопка 'Удалить QR'")
-
-    if user_id in user_data and user_data[user_id]['qr_codes']['codes']:
-        qr_list = user_data[user_id]['qr_codes']['codes']
-        
-        if not qr_list:
-            await message.reply("У вас нет QR-кодов для удаления.", reply_markup=get_qr_keyboard())
-            return
-
-        inline_buttons = []
-        for qr_item in qr_list:
-            button_text = qr_item['text'][:20] + "..." if len(qr_item['text']) > 20 else qr_item['text']
-            inline_buttons.append([InlineKeyboardButton(text=f"Удалить: {button_text}", callback_data=f"delete_qr_{qr_item['id']}")])
-        
-        if not inline_buttons:
-             await message.reply("Не удалось сформировать список QR-кодов для удаления.", reply_markup=get_qr_keyboard())
-             return
-
-        keyboard_inline = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-        await message.reply("Выберите QR-код для удаления (нажмите для подтверждения):", reply_markup=keyboard_inline)
-        
-    else:
-        log_message("INFO", user_id, username, action="Запрос на удаление QR", details="Список пуст")
-        await message.reply("У вас нет QR-кодов для удаления.", reply_markup=get_qr_keyboard())
-
-@dp.callback_query(lambda c: c.data and c.data.startswith('delete_qr_'))
-async def process_delete_qr_callback(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or callback_query.from_user.first_name
-    qr_id_to_delete = int(callback_query.data.split('_')[-1])
-
-    log_message("CALLBACK", user_id, username, action="Получен колбэк на удаление QR (шаг 1)", details=f"ID QR: {qr_id_to_delete}")
-
-    qr_to_delete = None
-    if user_id in user_data and 'qr_codes' in user_data[user_id] and 'codes' in user_data[user_id]['qr_codes']:
-        for qr_code in user_data[user_id]['qr_codes']['codes']:
-            if qr_code['id'] == qr_id_to_delete:
-                qr_to_delete = qr_code
-                break
-
-    if qr_to_delete:
-        text_preview = qr_to_delete['text'][:30] + "..." if len(qr_to_delete['text']) > 30 else qr_to_delete['text']
-        confirm_buttons = [
-            [InlineKeyboardButton(text="Да, удалить", callback_data=f"confirm_delete_{qr_id_to_delete}")],
-            [InlineKeyboardButton(text="Отмена", callback_data="cancel_delete")]
-        ]
-        keyboard_confirm = InlineKeyboardMarkup(inline_keyboard=confirm_buttons)
-        await callback_query.message.edit_text(f"Вы уверены, что хотите удалить QR-код с текстом:\n'{text_preview}'?", reply_markup=keyboard_confirm)
-    else:
-        await callback_query.message.edit_text("QR-код не найден или уже удален.", reply_markup=None)
-        await callback_query.answer("Ошибка: QR-код не найден.")
-        log_message("ERROR", user_id, username, action="Удаление QR (шаг 1)", details=f"QR с ID {qr_id_to_delete} не найден")
-
-    await callback_query.answer()
-
-@dp.callback_query(lambda c: c.data and (c.data.startswith('confirm_delete_') or c.data == 'cancel_delete'))
-async def process_confirm_delete_qr_callback(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or callback_query.from_user.first_name
-
-    if callback_query.data == 'cancel_delete':
-        log_message("CALLBACK", user_id, username, action="Отмена удаления QR")
-        await callback_query.message.edit_text("Удаление отменено.", reply_markup=None)
-        await callback_query.answer("Удаление отменено.")
-        return
-
-    qr_id_to_delete = int(callback_query.data.split('_')[-1])
-    log_message("CALLBACK", user_id, username, action="Получен колбэк на подтверждение удаления QR", details=f"ID QR: {qr_id_to_delete}")
-
-    deleted = False
-    qr_text_deleted = ""
-    if user_id in user_data and 'qr_codes' in user_data[user_id] and 'codes' in user_data[user_id]['qr_codes']:
-        qr_codes_list = user_data[user_id]['qr_codes']['codes']
-        qr_to_remove_data = None
-        for i, qr_code in enumerate(qr_codes_list):
-            if qr_code['id'] == qr_id_to_delete:
-                qr_to_remove_data = qr_code
-                qr_text_deleted = qr_code['text']
-                if os.path.exists(qr_code['filepath']):
-                    try:
-                        os.remove(qr_code['filepath'])
-                        log_message("INFO", user_id, username, action="Файл QR удален", details=f"Файл: {qr_code['filepath']}")
-                    except OSError as e:
-                        log_message("ERROR", user_id, username, action="Ошибка удаления файла QR", details=f"Файл: {qr_code['filepath']}, Ошибка: {e}")
-                else:
-                    log_message("WARNING", user_id, username, action="Файл QR для удаления не найден", details=f"Файл: {qr_code['filepath']}")
-                
-                del qr_codes_list[i]
-                deleted = True
-                break
-    
-    if deleted:
-        save_all_user_data()
-        text_preview = qr_text_deleted[:30] + "..." if len(qr_text_deleted) > 30 else qr_text_deleted
-        await callback_query.message.edit_text(f"QR-код для текста:\n'{text_preview}'\nуспешно удален.", reply_markup=None)
-        await callback_query.answer("QR-код удален!")
-        log_message("INFO", user_id, username, action="QR удален из данных", details=f"ID: {qr_id_to_delete}, Текст: {qr_text_deleted}")
-    else:
-        await callback_query.message.edit_text("Не удалось удалить QR-код. Возможно, он уже был удален ранее.", reply_markup=None)
-        await callback_query.answer("Ошибка при удалении.")
-        log_message("ERROR", user_id, username, action="Ошибка удаления QR из данных", details=f"ID: {qr_id_to_delete}, QR не найден в списке пользователя.")
-
-@dp.message(lambda message: message.text == "📋 Список QR")
-async def list_qr_codes_handler(message: types.Message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    
-    if user_id in user_data and user_data[user_id]['qr_codes']['codes']:
-        log_message("COMMAND", user_id, username, action="Запрос списка QR-кодов")
-        
-        qr_list = user_data[user_id]['qr_codes']['codes']
-        
-        if not qr_list:
-            await message.reply("У вас еще нет сохраненных QR-кодов. Создайте новый!", reply_markup=get_qr_keyboard())
-            return
-
-        inline_buttons = []
-        for qr_item in qr_list:
-            button_text = qr_item['text'][:20] + "..." if len(qr_item['text']) > 20 else qr_item['text']
-            inline_buttons.append([InlineKeyboardButton(text=f"QR: {button_text}", callback_data=f"show_qr_{qr_item['id']}")])
-        
-        if not inline_buttons:
-             await message.reply("Не удалось сформировать список QR-кодов.", reply_markup=get_qr_keyboard())
-             return
-
-        keyboard_inline = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-        await message.reply("Ваши QR-коды (нажмите, чтобы показать):", reply_markup=keyboard_inline)
-        
-    else:
-        log_message("INFO", user_id, username, action="Запрос списка QR", details="Список пуст")
-        await message.reply("У вас еще нет сохраненных QR-кодов. Создайте новый!", reply_markup=get_qr_keyboard())
-
-@dp.callback_query(lambda c: c.data and c.data.startswith('show_qr_'))
-async def process_show_qr_callback(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or callback_query.from_user.first_name
-    qr_id_to_show = int(callback_query.data.split('_')[2])
-
-    log_message("CALLBACK", user_id, username, action="Запрос на показ QR", details=f"ID: {qr_id_to_show}")
-
-    qr_code_info = None
-    if user_id in user_data and 'qr_codes' in user_data[user_id]:
-        for qr in user_data[user_id]['qr_codes']['codes']:
-            if qr['id'] == qr_id_to_show:
-                qr_code_info = qr
-                break
-    
-    if qr_code_info and 'filepath' in qr_code_info:
-        filepath = qr_code_info['filepath']
-        text = qr_code_info['text']
-        try:
-            if not os.path.exists(filepath):
-                log_message("WARNING", user_id, username, action="Показ QR из списка", details=f"Файл QR не найден: {filepath}. Попытка регенерации.")
-                img = qrcode.make(text)
-                img.save(filepath)
-                log_message("INFO", user_id, username, action="QR регенерирован", details=f"Файл: {filepath}")
-
-            with open(filepath, "rb") as qr_file_to_send:
-                qr_image_file = BufferedInputFile(qr_file_to_send.read(), filename=os.path.basename(filepath))
-                await callback_query.message.reply_photo(
-                    photo=qr_image_file, 
-                    caption=f"QR-код для текста:\n'{text}'",
-                    reply_markup=get_qr_keyboard()
-                )
-            await callback_query.answer()
-            log_message("INFO", user_id, username, action="QR-код показан из файла", details=f"ID: {qr_id_to_show}, Файл: {filepath}")
-
-        except FileNotFoundError:
-            log_message("ERROR", user_id, username, action="Ошибка показа QR из списка", details=f"Файл не найден: {filepath}")
-            await callback_query.message.reply("Файл QR-кода не найден. Возможно, он был удален. Попробуйте создать его заново.", reply_markup=get_qr_keyboard())
-            await callback_query.answer("Файл не найден")
-        except Exception as e:
-            log_message("ERROR", user_id, username, action="Ошибка показа QR из списка", details=str(e))
-            await callback_query.message.reply("Произошла ошибка при отображении QR-кода.", reply_markup=get_qr_keyboard())
-            await callback_query.answer("Ошибка")
-    elif qr_code_info and 'filepath' not in qr_code_info: 
-        log_message("WARNING", user_id, username, action="Показ QR из списка", details=f"Информация о файле для QR с ID {qr_id_to_show} отсутствует. Попытка регенерации на лету.")
-        try:
-            img = qrcode.make(qr_code_info['text'])
-            img_byte_arr = BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
-            qr_image_file = BufferedInputFile(img_byte_arr.read(), filename=f"qr_code_{qr_id_to_show}.png")
-            await callback_query.message.reply_photo(
-                photo=qr_image_file, 
-                caption=f"QR-код для текста (сгенерирован на лету):\n'{qr_code_info['text']}'",
-                reply_markup=get_qr_keyboard()
-            )
-            await callback_query.answer()
-        except Exception as e:
-            log_message("ERROR", user_id, username, action="Ошибка регенерации QR на лету", details=str(e))
-            await callback_query.message.reply("Произошла ошибка при отображении QR-кода.", reply_markup=get_qr_keyboard())
-            await callback_query.answer("Ошибка")
-    else:
-        log_message("WARNING", user_id, username, action="Показ QR из списка", details=f"QR с ID {qr_id_to_show} не найден")
-        await callback_query.message.reply("QR-код не найден.", reply_markup=get_qr_keyboard())
-        await callback_query.answer("Не найден")
-
 @dp.message()
 async def process_message(message: types.Message):
     try:
-        main_menu_buttons = [
-            "📝 Новый подсчет",
-            "🔄 Очистить",
-            "❓ Инструкция",
-            "🖼️ QR Коды"
-        ]
-        if message.text in main_menu_buttons:
+        if message.text == "❓ Инструкция":
             return
-
+            
         user_id = message.from_user.id
         username = message.from_user.username or message.from_user.first_name
         
@@ -729,22 +328,10 @@ async def process_message(message: types.Message):
         if user_id not in user_data:
             user_data[user_id] = {
                 'count': 0,
-                'values': {},
-                'qr_codes': {'next_qr_id': 1, 'codes': []}
+                'values': {}
             }
-            log_message("INFO", user_id, username, action="Создан новый пользователь при сообщении", 
-                       details="Инициализированы данные, включая раздел QR")
-        elif 'qr_codes' not in user_data[user_id]:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-            log_message("INFO", user_id, username, action="Обновление пользователя при сообщении", 
-                       details="Добавлен раздел QR для существующего пользователя")
-        
-        if 'qr_codes' not in user_data[user_id]:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-        if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['next_qr_id'] = 1
-        if 'codes' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['codes'] = []
+            log_message("INFO", user_id, username, action="Создан новый пользователь", 
+                       details="Инициализированы данные")
         
         user_data[user_id]['count'] += 1
         
@@ -794,8 +381,7 @@ async def process_message(message: types.Message):
                        details="Неверный формат")
         
         log_user_state(user_id)
-        save_all_user_data()
-
+        
         msg_count = user_data[user_id]['count']
         
         is_final_message = (msg_count == 6)
@@ -818,18 +404,16 @@ async def process_message(message: types.Message):
             log_message("INFO", user_id, username, action="Превышен лимит сообщений", 
                        details="Начат новый цикл")
             
-            current_qr_data = user_data[user_id].get('qr_codes', {'next_qr_id': 1, 'codes': []})
             user_data[user_id] = {
                 'count': 1,
-                'values': {},
-                'qr_codes': current_qr_data 
+                'values': {}
             }
             
-            for line_item in lines: 
-                line_item = line_item.strip()
-                if not line_item:
+            for line in lines:
+                line = line.strip()
+                if not line:
                     continue
-                name, value = parse_line(line_item)
+                name, value = parse_line(line)
                 if name and value is not None:
                     similar_category = find_similar_category(name, user_data[user_id]['values'])
                     
@@ -852,9 +436,8 @@ async def process_message(message: types.Message):
         await message.reply(response, reply_markup=get_keyboard())
     
     except Exception as e:
-        current_user_id = message.from_user.id if message and message.from_user else None
-        current_username = (message.from_user.username or message.from_user.first_name) if message and message.from_user else None
-        log_message("ERROR", current_user_id, current_username, action="Ошибка обработки сообщения", 
+        import traceback
+        log_message("ERROR", user_id, username, action="Ошибка обработки сообщения", 
                    details=str(e))
         
         tb = traceback.format_exc()
@@ -879,31 +462,24 @@ def find_similar_category(name, values, similarity_threshold=0.9):
     
     for existing_name in values.keys():
         if normalize_category_name(existing_name) == normalized_name:
-            log_message("DEBUG", action="Поиск похожей категории", details=f"Найдено точное совпадение нормализованных имен: '{name}' -> '{existing_name}'")
             return existing_name
     
-    best_match = None
-    highest_similarity = 0.0
-
     for existing_name in values.keys():
         similarity = string_similarity(normalized_name, normalize_category_name(existing_name))
-        if similarity >= similarity_threshold and similarity > highest_similarity:
-            highest_similarity = similarity
-            best_match = existing_name
-            
-    if best_match:
-        log_message("DEBUG", action="Поиск похожей категории", details=f"Найдена похожая категория: '{name}' -> '{best_match}' с схожестью {highest_similarity:.2f}")
-        return best_match
+        if similarity >= similarity_threshold:
+            if len(existing_name) <= len(name):
+                return existing_name
+            else:
+                values[name] = values[existing_name]
+                del values[existing_name]
+                return name
     
-    log_message("DEBUG", action="Поиск похожей категории", details=f"Похожих категорий для '{name}' не найдено (порог {similarity_threshold}). Создается новая.")
     return name
 
 async def main():
     try:
         log_message("SYSTEM", action="Бот запущен", details="Начало работы")
         
-        load_all_user_data()
-
         log_message("SYSTEM", action="Конфигурация", 
                    details=f"Файл логов: {LOG_FILE}")
         log_message("SYSTEM", action="Лимиты", 
@@ -912,11 +488,11 @@ async def main():
         await dp.start_polling(bot)
     except Exception as e:
         log_message("ERROR", action="Ошибка в работе бота", details=str(e))
+        import traceback
         tb = traceback.format_exc()
         print(f"{Colors.RED}Подробности ошибки:{Colors.RESET}\n{tb}")
     finally:
         log_message("SYSTEM", action="Бот остановлен", details="Завершение работы")
-        save_all_user_data()
         await bot.session.close()
 
 if __name__ == '__main__':
@@ -924,4 +500,4 @@ if __name__ == '__main__':
     print(f"{Colors.CYAN}Запуск: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Colors.RESET}\n")
     
     log_message("SYSTEM", action="Инициализация", details="Запуск скрипта")
-    asyncio.run(main())
+    asyncio.run(main()) 
