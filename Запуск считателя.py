@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-target_directory = r"C:\Users\New\Desktop\Программы\Моё\сурсы\Счётчик для отчётов — копия" (менять на свою директорию)
+target_directory = r"C:\Users\New\Desktop\Программы\Моё\сурсы\Счётчик для отчётов — копия" #(менять на свою директорию)
 
 try:
     os.chdir(target_directory)
