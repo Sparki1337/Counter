@@ -22,8 +22,8 @@
 
 ### Шаг 1: Клонирование репозитория
 ```bash
-git clone https://github.com/Sparki1337/schitatel.git
-cd schitatel
+git clone https://github.com/Sparki1337/Counter.git
+cd Counter
 ```
 
 ### Шаг 2: Создание виртуального окружения (рекомендуется)
