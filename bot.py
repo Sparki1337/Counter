@@ -125,9 +125,14 @@ def save_all_user_data():
     with data_lock:
         try:
             data_to_save = {str(k): v for k, v in user_data.items()}
+            log_message("SYSTEM", action="Сохранение данных", details=f"Начало записи в временный файл {USER_DATA_TEMP_FILE}")
             with open(USER_DATA_TEMP_FILE, "w", encoding="utf-8") as f:
                 json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+            log_message("SYSTEM", action="Сохранение данных", details=f"Временный файл {USER_DATA_TEMP_FILE} успешно записан.")
+            
+            log_message("SYSTEM", action="Сохранение данных", details=f"Замена основного файла {USER_DATA_FILE} временным файлом.")
             os.replace(USER_DATA_TEMP_FILE, USER_DATA_FILE)
+            log_message("SYSTEM", action="Сохранение данных", details=f"Основной файл {USER_DATA_FILE} успешно обновлен.")
         except IOError as e:
             log_message("ERROR", action="Сохранение данных", details=f"Ошибка сохранения в {USER_DATA_FILE}: {e}")
 
