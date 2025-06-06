@@ -52,7 +52,7 @@ pip install -r requirements.txt
 Откройте файл `bot.py` и замените `YOUR_BOT_TOKEN` на ваш реальный токен, полученный от @BotFather.
 
 ```python
-bot = Bot(token="YOUR_BOT_TOKEN") # Замените YOUR_BOT_TOKEN
+bot = Bot(token="YOUR_BOT_TOKEN") # Заменить YOUR_BOT_TOKEN
 ```
 
 ### Шаг 6: Запуск бота
