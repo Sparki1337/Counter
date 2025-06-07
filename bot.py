@@ -139,6 +139,28 @@ def save_all_user_data():
         except IOError as e:
             log_message("ERROR", action="Сохранение данных", details=f"Ошибка сохранения в {USER_DATA_FILE}: {e}")
 
+def get_or_init_user_data(user_id, username=None):
+    is_new_user = user_id not in user_data
+    user_entry = user_data.setdefault(user_id, {
+        'count': 0,
+        'values': {},
+    })
+
+    if is_new_user:
+        log_message("INFO", user_id, username, action="Создан новый пользователь",
+                   details="Инициализированы данные, включая раздел QR")
+    elif 'qr_codes' not in user_entry:
+        log_message("INFO", user_id, username, action="Обновление пользователя",
+                   details="Добавлен раздел QR для существующего пользователя")
+
+    ensure_qr_structure(user_entry)
+    return user_entry
+
+def ensure_qr_structure(user_data_entry):
+    qr_data = user_data_entry.setdefault('qr_codes', {'next_qr_id': 1, 'codes': []})
+    qr_data.setdefault('next_qr_id', 1)
+    qr_data.setdefault('codes', [])
+
 def log_user_state(user_id):
     if user_id not in user_data:
         log_message("DEBUG", user_id, action="Состояние пользователя", details="Данные отсутствуют")
@@ -182,31 +204,13 @@ def get_qr_keyboard():
     keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     return keyboard
 
-def ensure_qr_structure(user_data_entry):
-    qr_data = user_data_entry.setdefault('qr_codes', {'next_qr_id': 1, 'codes': []})
-    qr_data.setdefault('next_qr_id', 1)
-    qr_data.setdefault('codes', [])
-
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     
     with data_lock:
-        if user_id not in user_data:
-            user_data[user_id] = {
-                'count': 0,
-                'values': {},
-            }
-            ensure_qr_structure(user_data[user_id])
-            log_message("INFO", user_id, username, action="Создан новый пользователь", 
-                       details="Инициализированы данные, включая раздел QR")
-        else:
-            if 'qr_codes' not in user_data[user_id]:
-                 log_message("INFO", user_id, username, action="Обновление пользователя", 
-                       details="Добавлен раздел QR для существующего пользователя")
-            ensure_qr_structure(user_data[user_id])
-
+        get_or_init_user_data(user_id, username)
         save_all_user_data()
 
     log_message("COMMAND", user_id, username, action="Выполнена команда /start")
@@ -469,10 +473,7 @@ async def generate_qr_code_handler(message: types.Message, state: FSMContext):
         caption = ""
         
         with data_lock:
-            if user_id not in user_data:
-                user_data[user_id] = {'count': 0, 'values': {}}
-            ensure_qr_structure(user_data[user_id])
-
+            get_or_init_user_data(user_id, username)
             existing_qr = None
             for qr_code_item in user_data[user_id]['qr_codes']['codes']:
                 if qr_code_item['text'] == qr_text:
@@ -759,19 +760,7 @@ async def process_message(message: types.Message):
             log_message("MESSAGE", user_id, username, action="Получено сообщение", 
                        details=f"Текст: {message.text}")
             
-            if user_id not in user_data:
-                user_data[user_id] = {
-                    'count': 0,
-                    'values': {},
-                }
-                ensure_qr_structure(user_data[user_id])
-                log_message("INFO", user_id, username, action="Создан новый пользователь при сообщении", 
-                           details="Инициализированы данные, включая раздел QR")
-            else:
-                if 'qr_codes' not in user_data[user_id]:
-                    log_message("INFO", user_id, username, action="Обновление пользователя при сообщении", 
-                                   details="Добавлен раздел QR для существующего пользователя")
-                ensure_qr_structure(user_data[user_id])
+            get_or_init_user_data(user_id, username)
             
             user_data[user_id]['count'] += 1
             
