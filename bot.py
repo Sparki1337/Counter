@@ -114,6 +114,7 @@ def load_all_user_data():
                              user_data[uid]['qr_codes']['next_qr_id'] = 1
                         if 'codes' not in user_data[uid]['qr_codes']:
                              user_data[uid]['qr_codes']['codes'] = []
+                        user_data[uid].setdefault('last_additions', [])
 
                     log_message("SYSTEM", action="Загрузка данных", details=f"Данные пользователей загружены из {USER_DATA_FILE}")
             else:
@@ -144,6 +145,7 @@ def get_or_init_user_data(user_id, username=None):
     user_entry = user_data.setdefault(user_id, {
         'count': 0,
         'values': {},
+        'last_additions': []
     })
 
     if is_new_user:
@@ -236,79 +238,44 @@ async def clear_command(message: types.Message):
         
         with data_lock:
             if user_id in user_data:
-                if user_data[user_id]['count'] > 0:
+                if user_data[user_id].get('last_additions'):
                     user_data[user_id]['count'] -= 1
                     
-                    if 'last_message' in user_data[user_id]:
-                        last_message = user_data[user_id]['last_message']
-                        lines = last_message.split('\n')
-                        
-                        log_message("DEBUG", user_id, username, action="Удаление сообщения", 
-                                   details=f"Разбор {len(lines)} строк")
-                        
-                        removed_values = []
-                        
-                        for i, line in enumerate(lines):
-                            line = line.strip()
-                            if not line:
-                                continue
-                            
-                            log_message("DEBUG", user_id, username, action="Удаление строки", 
-                                       details=f"Строка {i+1}: {line}")
-                            
-                            name, value = parse_line(line)
-                            if name and value is not None:
-                                similar_category = find_similar_category(name, user_data[user_id]['values'])
-                                
-                                if similar_category != name:
-                                    log_message("DEBUG", user_id, username, action="Похожая категория для удаления", 
-                                               details=f"'{name}' похожа на '{similar_category}'")
-                                    name = similar_category
-                                
-                                if name in user_data[user_id]['values']:
-                                    old_value = user_data[user_id]['values'][name]
-                                    
-                                    user_data[user_id]['values'][name] -= value
-                                    
-                                    log_message("DEBUG", user_id, username, action="Вычитание значения", 
-                                               details=f"{name}: {old_value} - {value} = {user_data[user_id]['values'][name]}")
-                                    
-                                    removed_values.append(f"{name}: {value}")
-                                else:
-                                    log_message("WARNING", user_id, username, action="Пропуск строки при удалении", 
-                                               details=f"Не найдено соответствующее значение: {line}")
-                            else:
-                                log_message("WARNING", user_id, username, action="Пропуск строки при удалении", 
-                                           details=f"Не удалось разобрать: {line}")
-                        
-                        del user_data[user_id]['last_message']
-                        
-                        log_message("INFO", user_id, username, action="Удалено последнее сообщение", 
-                                   details=f"Удалены значения: {', '.join(removed_values) if removed_values else 'нет'}")
-                        
-                        msg_count = user_data[user_id]['count']
-                        if msg_count == 0:
-                            user_data[user_id]['values'] = {}
+                    last_additions = user_data[user_id].pop('last_additions', [])
+                    removed_values = []
 
-                        log_user_state(user_id)
-                        save_all_user_data() 
-                        
-                        if msg_count == 0:
-                            reply_text = "Последнее сообщение удалено. История пуста. Начните новый подсчет."
+                    for addition in last_additions:
+                        name = addition['name']
+                        value = addition['value']
+                        if name in user_data[user_id]['values']:
+                            user_data[user_id]['values'][name] -= value
+                            removed_values.append(f"{name}: {value}")
                         else:
-                            progress_bar = create_progress_bar(msg_count, MAX_MESSAGES)
-                            response = f"{progress_bar} ({msg_count}/{MAX_MESSAGES})\n\n"
-                            for name, value in user_data[user_id]['values'].items():
-                                response += f"{name} - {value}\n"
-                            reply_text = response
+                            log_message("WARNING", user_id, username, action="Пропуск вычитания", 
+                                       details=f"Не найдена категория для вычитания: {name}")
+
+                    log_message("INFO", user_id, username, action="Отменено последнее добавление", 
+                               details=f"Удалены значения: {', '.join(removed_values) if removed_values else 'нет'}")
+                    
+                    msg_count = user_data[user_id]['count']
+                    if msg_count == 0:
+                        user_data[user_id]['values'] = {}
+
+                    log_user_state(user_id)
+                    save_all_user_data() 
+                    
+                    if msg_count == 0:
+                        reply_text = "Последнее сообщение удалено. История пуста. Начните новый подсчет."
                     else:
-                        log_message("INFO", user_id, username, action="Попытка удаления", 
-                                   details="Нет данных о последнем сообщении")
-                        reply_text = "Нет данных о последнем сообщении для удаления."
+                        progress_bar = create_progress_bar(msg_count, MAX_MESSAGES)
+                        response = f"{progress_bar} ({msg_count}/{MAX_MESSAGES})\n\n"
+                        for name, value in user_data[user_id]['values'].items():
+                            response += f"{name} - {value}\n"
+                        reply_text = response
                 else:
                     log_message("INFO", user_id, username, action="Попытка удаления", 
-                               details="История пуста")
-                    reply_text = "История пуста! Нечего удалять."
+                               details="Нет данных для отмены")
+                    reply_text = "Нет данных о последнем сообщении для удаления."
             else:
                 log_message("INFO", user_id, username, action="Попытка удаления", 
                            details="Пользователь не найден в базе")
@@ -341,6 +308,7 @@ async def new_count(message: types.Message):
         user_data[user_id] = {
             'count': 0,
             'values': {},
+            'last_additions': [],
             'qr_codes': current_qr_data
         }
         
@@ -587,16 +555,18 @@ async def process_delete_qr_callback(callback_query: types.CallbackQuery):
 
     await callback_query.answer()
 
-@dp.callback_query(F.data.startswith('confirm_delete_') | (F.data == 'cancel_delete'))
+@dp.callback_query(F.data == "cancel_delete")
+async def process_cancel_delete_qr_callback(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
+    username = callback_query.from_user.username or callback_query.from_user.first_name
+    log_message("CALLBACK", user_id, username, action="Отмена удаления QR")
+    await callback_query.message.edit_text("Удаление отменено.", reply_markup=None)
+    await callback_query.answer("Удаление отменено.")
+
+@dp.callback_query(F.data.startswith('confirm_delete_'))
 async def process_confirm_delete_qr_callback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or callback_query.from_user.first_name
-
-    if callback_query.data == 'cancel_delete':
-        log_message("CALLBACK", user_id, username, action="Отмена удаления QR")
-        await callback_query.message.edit_text("Удаление отменено.", reply_markup=None)
-        await callback_query.answer("Удаление отменено.")
-        return
 
     qr_id_to_delete = int(callback_query.data.split('_')[-1])
     log_message("CALLBACK", user_id, username, action="Получен колбэк на подтверждение удаления QR", details=f"ID QR: {qr_id_to_delete}")
@@ -762,15 +732,24 @@ async def process_message(message: types.Message):
             
             get_or_init_user_data(user_id, username)
             
+            if user_data[user_id]['count'] >= MAX_MESSAGES:
+                log_message("INFO", user_id, username, action="Превышен лимит сообщений", 
+                           details="Начат новый цикл")
+                current_qr_data = user_data[user_id].get('qr_codes', {'next_qr_id': 1, 'codes': []})
+                user_data[user_id].update({
+                    'count': 0,
+                    'values': {},
+                    'qr_codes': current_qr_data,
+                    'last_additions': []
+                })
+
             user_data[user_id]['count'] += 1
-            
-            user_data[user_id]['last_message'] = message.text
             
             lines = message.text.split('\n')
             log_message("DEBUG", user_id, username, action="Разбор сообщения", 
                        details=f"Количество строк: {len(lines)}")
             
-            parsed_values = []
+            parsed_additions = []
             for i, line in enumerate(lines):
                 line = line.strip()
                 if not line:
@@ -789,22 +768,20 @@ async def process_message(message: types.Message):
                         name = similar_category
                     
                     old_value = user_data[user_id]['values'].get(name, 0)
-                    if name in user_data[user_id]['values']:
-                        user_data[user_id]['values'][name] += value
-                        log_message("DEBUG", user_id, username, action="Обновление значения", 
-                                   details=f"{name}: {old_value} + {value} = {user_data[user_id]['values'][name]}")
-                    else:
-                        user_data[user_id]['values'][name] = value
-                        log_message("DEBUG", user_id, username, action="Новое значение", 
-                                   details=f"{name}: {value}")
-                    parsed_values.append(f"{name}: {value}")
+                    user_data[user_id]['values'][name] = old_value + value
+                    log_message("DEBUG", user_id, username, action="Обновление значения", 
+                               details=f"{name}: {old_value} + {value} = {user_data[user_id]['values'][name]}")
+                    
+                    parsed_additions.append({'name': name, 'value': value})
                 else:
                     log_message("WARNING", user_id, username, action="Пропуск строки", 
                                details=f"Не удалось разобрать: {line}")
             
-            if parsed_values:
+            user_data[user_id]['last_additions'] = parsed_additions
+
+            if parsed_additions:
                 log_message("INFO", user_id, username, action="Обработаны значения", 
-                           details=", ".join(parsed_values))
+                           details=", ".join([f"{item['name']}: {item['value']}" for item in parsed_additions]))
             else:
                 log_message("WARNING", user_id, username, action="Не удалось обработать сообщение", 
                            details="Неверный формат")
@@ -816,8 +793,8 @@ async def process_message(message: types.Message):
             
             is_final_message = (msg_count == MAX_MESSAGES)
             
+            response_text = ""
             if is_final_message:
-                response_text = ""
                 for name, value in user_data[user_id]['values'].items():
                     response_text += f"{name} - {value}\n"
                 response = response_text
@@ -828,45 +805,9 @@ async def process_message(message: types.Message):
                     response_text += f"{name} - {value}\n"
                 response = response_text
             
-            if msg_count == MAX_MESSAGES:
-                log_message("INFO", user_id, username, action="Достигнут лимит сообщений", 
-                           details=f"{MAX_MESSAGES} из {MAX_MESSAGES}")
-            
-            if msg_count > MAX_MESSAGES:
-                log_message("INFO", user_id, username, action="Превышен лимит сообщений", 
-                           details="Начат новый цикл")
-                
-                current_qr_data = user_data[user_id].get('qr_codes', {'next_qr_id': 1, 'codes': []})
-                user_data[user_id] = {
-                    'count': 1,
-                    'values': {},
-                    'qr_codes': current_qr_data 
-                }
-                
-                for line_item in lines: 
-                    line_item = line_item.strip()
-                    if not line_item:
-                        continue
-                    name, value = parse_line(line_item)
-                    if name and value is not None:
-                        similar_category = find_similar_category(name, user_data[user_id]['values'])
-                        
-                        if similar_category != name:
-                            log_message("DEBUG", user_id, username, action="Похожая категория (новый цикл)", 
-                                       details=f"'{name}' похожа на '{similar_category}'")
-                            name = similar_category
-                        
-                        user_data[user_id]['values'][name] = value
-                        log_message("DEBUG", user_id, username, action="Новое значение (новый цикл)", 
-                                   details=f"{name}: {value}")
-                
-                log_user_state(user_id)
-                
-                progress_bar = create_progress_bar(1, MAX_MESSAGES)
-                response_text = f"{progress_bar} (1/{MAX_MESSAGES})\n\n"
-                for name, value in user_data[user_id]['values'].items():
-                    response_text += f"{name} - {value}\n"
-                response = response_text
+            if msg_count >= MAX_MESSAGES:
+                log_message("INFO", user_id, username, action="Достигнут или превышен лимит сообщений", 
+                           details=f"{msg_count} из {MAX_MESSAGES}")
         
         if response:
             await message.reply(response, reply_markup=get_keyboard())
