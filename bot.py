@@ -1,4 +1,4 @@
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
@@ -40,6 +40,9 @@ class Colors:
     BG_MAGENTA = "\033[45m"
     BG_CYAN = "\033[46m"
     BG_WHITE = "\033[47m"
+
+MAX_MESSAGES = 6
+SIMILARITY_THRESHOLD = 0.9
 
 LOG_DIR = "logs"
 QR_CODE_DIR = "qrcodes"
@@ -179,6 +182,11 @@ def get_qr_keyboard():
     keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     return keyboard
 
+def ensure_qr_structure(user_data_entry):
+    qr_data = user_data_entry.setdefault('qr_codes', {'next_qr_id': 1, 'codes': []})
+    qr_data.setdefault('next_qr_id', 1)
+    qr_data.setdefault('codes', [])
+
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
@@ -189,21 +197,15 @@ async def send_welcome(message: types.Message):
             user_data[user_id] = {
                 'count': 0,
                 'values': {},
-                'qr_codes': {'next_qr_id': 1, 'codes': []}
             }
+            ensure_qr_structure(user_data[user_id])
             log_message("INFO", user_id, username, action="Создан новый пользователь", 
                        details="Инициализированы данные, включая раздел QR")
-        elif 'qr_codes' not in user_data[user_id]:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-            log_message("INFO", user_id, username, action="Обновление пользователя", 
+        else:
+            if 'qr_codes' not in user_data[user_id]:
+                 log_message("INFO", user_id, username, action="Обновление пользователя", 
                        details="Добавлен раздел QR для существующего пользователя")
-
-        if 'qr_codes' not in user_data[user_id]:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-        if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['next_qr_id'] = 1
-        if 'codes' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['codes'] = []
+            ensure_qr_structure(user_data[user_id])
 
         save_all_user_data()
 
@@ -218,7 +220,7 @@ async def send_welcome(message: types.Message):
         reply_markup=get_keyboard()
     )
 
-@dp.message(lambda message: message.text == "🔄 Очистить")
+@dp.message(F.text == "🔄 Очистить")
 async def clear_command(message: types.Message):
     try:
         user_id = message.from_user.id
@@ -290,8 +292,8 @@ async def clear_command(message: types.Message):
                         if msg_count == 0:
                             reply_text = "Последнее сообщение удалено. История пуста. Начните новый подсчет."
                         else:
-                            progress_bar = create_progress_bar(msg_count, 6)
-                            response = f"{progress_bar} ({msg_count}/6)\n\n"
+                            progress_bar = create_progress_bar(msg_count, MAX_MESSAGES)
+                            response = f"{progress_bar} ({msg_count}/{MAX_MESSAGES})\n\n"
                             for name, value in user_data[user_id]['values'].items():
                                 response += f"{name} - {value}\n"
                             reply_text = response
@@ -320,7 +322,7 @@ async def clear_command(message: types.Message):
         await message.reply("Произошла ошибка при удалении данных. Пожалуйста, попробуйте еще раз.", 
                            reply_markup=get_keyboard())
 
-@dp.message(lambda message: message.text == "📝 Новый подсчет")
+@dp.message(F.text == "📝 Новый подсчет")
 async def new_count(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -338,12 +340,7 @@ async def new_count(message: types.Message):
             'qr_codes': current_qr_data
         }
         
-        if not user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-        if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['next_qr_id'] = 1
-        if 'codes' not in user_data[user_id]['qr_codes']:
-            user_data[user_id]['qr_codes']['codes'] = []
+        ensure_qr_structure(user_data[user_id])
 
         log_message("INFO", user_id, username, action="Начат новый подсчет", 
                    details="Данные пользователя сброшены (кроме QR)")
@@ -356,7 +353,7 @@ async def new_count(message: types.Message):
         reply_markup=get_keyboard()
     )
 
-@dp.message(lambda message: message.text == "❓ Инструкция")
+@dp.message(F.text == "❓ Инструкция")
 async def show_instructions(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -376,7 +373,7 @@ async def show_instructions(message: types.Message):
         "Бот автоматически суммирует значения по категориям и умеет распознавать похожие названия "
         "(например, \"АТТ ПБ экзотик 0,25\" и \"АТТ ПБ экзотик 0,25л\" будут считаться одной категорией).\n\n"
         "Нулевые значения сохраняются и отображаются для всех категорий.\n\n"
-        "Максимальное количество сообщений в одном цикле - 6."
+        f"Максимальное количество сообщений в одном цикле - {MAX_MESSAGES}."
     )
     await message.reply(instructions, reply_markup=get_keyboard())
 
@@ -425,7 +422,7 @@ def parse_line(line):
     
     return None, None
 
-@dp.message(lambda message: message.text == "🖼️ QR Коды")
+@dp.message(F.text == "🖼️ QR Коды")
 async def qr_codes_section(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
@@ -433,7 +430,7 @@ async def qr_codes_section(message: types.Message, state: FSMContext):
     log_message("COMMAND", user_id, username, action="Переход в раздел 'QR Коды'")
     await message.reply("Вы в разделе QR-кодов. Выберите действие:", reply_markup=get_qr_keyboard())
 
-@dp.message(lambda message: message.text == "⬅️ Назад")
+@dp.message(F.text == "⬅️ Назад")
 async def go_back_to_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
@@ -441,7 +438,7 @@ async def go_back_to_main_menu(message: types.Message, state: FSMContext):
     log_message("COMMAND", user_id, username, action="Возврат в главное меню из QR")
     await message.reply("Возврат в главное меню.", reply_markup=get_keyboard())
 
-@dp.message(lambda message: message.text == "➕ Создать QR")
+@dp.message(F.text == "➕ Создать QR")
 async def request_qr_text_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -473,13 +470,8 @@ async def generate_qr_code_handler(message: types.Message, state: FSMContext):
         
         with data_lock:
             if user_id not in user_data:
-                 user_data[user_id] = {'count': 0, 'values': {}, 'qr_codes': {'next_qr_id': 1, 'codes': []}}
-            elif 'qr_codes' not in user_data[user_id]:
-                user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-            if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-                user_data[user_id]['qr_codes']['next_qr_id'] = 1
-            if 'codes' not in user_data[user_id]['qr_codes']:
-                user_data[user_id]['qr_codes']['codes'] = []
+                user_data[user_id] = {'count': 0, 'values': {}}
+            ensure_qr_structure(user_data[user_id])
 
             existing_qr = None
             for qr_code_item in user_data[user_id]['qr_codes']['codes']:
@@ -534,7 +526,7 @@ async def generate_qr_code_handler(message: types.Message, state: FSMContext):
     
     await state.clear()
 
-@dp.message(lambda message: message.text == "🗑️ Удалить QR")
+@dp.message(F.text == "🗑️ Удалить QR")
 async def request_delete_qr_handler(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -563,7 +555,7 @@ async def request_delete_qr_handler(message: types.Message):
         log_message("INFO", user_id, username, action="Запрос на удаление QR", details="Список пуст")
         await message.reply("У вас нет QR-кодов для удаления.", reply_markup=get_qr_keyboard())
 
-@dp.callback_query(lambda c: c.data and c.data.startswith('delete_qr_'))
+@dp.callback_query(F.data.startswith('delete_qr_'))
 async def process_delete_qr_callback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or callback_query.from_user.first_name
@@ -594,7 +586,7 @@ async def process_delete_qr_callback(callback_query: types.CallbackQuery):
 
     await callback_query.answer()
 
-@dp.callback_query(lambda c: c.data and (c.data.startswith('confirm_delete_') or c.data == 'cancel_delete'))
+@dp.callback_query(F.data.startswith('confirm_delete_') | (F.data == 'cancel_delete'))
 async def process_confirm_delete_qr_callback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or callback_query.from_user.first_name
@@ -649,7 +641,7 @@ async def process_confirm_delete_qr_callback(callback_query: types.CallbackQuery
     if answer_text:
         await callback_query.answer(answer_text)
 
-@dp.message(lambda message: message.text == "📋 Список QR")
+@dp.message(F.text == "📋 Список QR")
 async def list_qr_codes_handler(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -679,7 +671,7 @@ async def list_qr_codes_handler(message: types.Message):
         log_message("INFO", user_id, username, action="Запрос списка QR", details="Список пуст")
         await message.reply("У вас еще нет сохраненных QR-кодов. Создайте новый!", reply_markup=get_qr_keyboard())
 
-@dp.callback_query(lambda c: c.data and c.data.startswith('show_qr_'))
+@dp.callback_query(F.data.startswith('show_qr_'))
 async def process_show_qr_callback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or callback_query.from_user.first_name
@@ -771,21 +763,15 @@ async def process_message(message: types.Message):
                 user_data[user_id] = {
                     'count': 0,
                     'values': {},
-                    'qr_codes': {'next_qr_id': 1, 'codes': []}
                 }
+                ensure_qr_structure(user_data[user_id])
                 log_message("INFO", user_id, username, action="Создан новый пользователь при сообщении", 
                            details="Инициализированы данные, включая раздел QR")
-            elif 'qr_codes' not in user_data[user_id]:
-                user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-                log_message("INFO", user_id, username, action="Обновление пользователя при сообщении", 
-                           details="Добавлен раздел QR для существующего пользователя")
-            
-            if 'qr_codes' not in user_data[user_id]:
-                user_data[user_id]['qr_codes'] = {'next_qr_id': 1, 'codes': []}
-            if 'next_qr_id' not in user_data[user_id]['qr_codes']:
-                user_data[user_id]['qr_codes']['next_qr_id'] = 1
-            if 'codes' not in user_data[user_id]['qr_codes']:
-                user_data[user_id]['qr_codes']['codes'] = []
+            else:
+                if 'qr_codes' not in user_data[user_id]:
+                    log_message("INFO", user_id, username, action="Обновление пользователя при сообщении", 
+                                   details="Добавлен раздел QR для существующего пользователя")
+                ensure_qr_structure(user_data[user_id])
             
             user_data[user_id]['count'] += 1
             
@@ -839,7 +825,7 @@ async def process_message(message: types.Message):
 
             msg_count = user_data[user_id]['count']
             
-            is_final_message = (msg_count == 6)
+            is_final_message = (msg_count == MAX_MESSAGES)
             
             if is_final_message:
                 response_text = ""
@@ -847,17 +833,17 @@ async def process_message(message: types.Message):
                     response_text += f"{name} - {value}\n"
                 response = response_text
             else:
-                progress_bar = create_progress_bar(msg_count, 6)
-                response_text = f"{progress_bar} ({msg_count}/6)\n\n"
+                progress_bar = create_progress_bar(msg_count, MAX_MESSAGES)
+                response_text = f"{progress_bar} ({msg_count}/{MAX_MESSAGES})\n\n"
                 for name, value in user_data[user_id]['values'].items():
                     response_text += f"{name} - {value}\n"
                 response = response_text
             
-            if msg_count == 6:
+            if msg_count == MAX_MESSAGES:
                 log_message("INFO", user_id, username, action="Достигнут лимит сообщений", 
-                           details="6 из 6")
+                           details=f"{MAX_MESSAGES} из {MAX_MESSAGES}")
             
-            if msg_count > 6:
+            if msg_count > MAX_MESSAGES:
                 log_message("INFO", user_id, username, action="Превышен лимит сообщений", 
                            details="Начат новый цикл")
                 
@@ -887,8 +873,8 @@ async def process_message(message: types.Message):
                 
                 log_user_state(user_id)
                 
-                progress_bar = create_progress_bar(1, 6)
-                response_text = f"{progress_bar} (1/6)\n\n"
+                progress_bar = create_progress_bar(1, MAX_MESSAGES)
+                response_text = f"{progress_bar} (1/{MAX_MESSAGES})\n\n"
                 for name, value in user_data[user_id]['values'].items():
                     response_text += f"{name} - {value}\n"
                 response = response_text
@@ -919,7 +905,7 @@ def normalize_category_name(name):
     normalized = remove_trailing_letters(normalized)
     return normalized
 
-def find_similar_category(name, values, similarity_threshold=0.9):
+def find_similar_category(name, values, similarity_threshold=SIMILARITY_THRESHOLD):
     normalized_name = normalize_category_name(name)
     
     for existing_name in values.keys():
@@ -958,7 +944,7 @@ async def main():
         log_message("SYSTEM", action="Конфигурация", 
                    details=f"Файл логов: {LOG_FILE}")
         log_message("SYSTEM", action="Лимиты", 
-                   details=f"Максимум сообщений в цикле: 6")
+                   details=f"Максимум сообщений в цикле: {MAX_MESSAGES}")
         
         await dp.start_polling(bot)
     except Exception as e:
