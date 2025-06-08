@@ -17,6 +17,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeModalBtn = document.querySelector('.close-btn');
     const pasteFromClipboardBtn = document.getElementById('pasteFromClipboardBtn');
 
+    function applyButtonStyles() {
+        const buttons = document.querySelectorAll('.controls-secondary button');
+        const commonStyle = {
+            backgroundColor: '#424242',
+            color: '#aaa',
+            border: '1px solid #555',
+            fontWeight: '500',
+            boxShadow: 'none',
+            textShadow: 'none'
+        };
+        
+        buttons.forEach(button => {
+            Object.assign(button.style, commonStyle);
+        });
+    }
+    
+    applyButtonStyles();
+
     let state = {
         count: 0,
         values: {},
