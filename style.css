@@ -205,4 +205,22 @@ h2 {
 .close-btn:focus {
     color: #fff;
     text-decoration: none;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #2a2a2a;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #007bff;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #0056b3;
 } 
