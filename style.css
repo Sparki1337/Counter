@@ -86,28 +86,19 @@ button:active {
 
 #clearLastBtn, #newCountBtn, #instructionBtn, #pasteFromClipboardBtn {
     flex-grow: 1;
-    background-color: #3a3a3a;
-    color: #555;
-    border: 1px solid #555;
-}
-#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover, #pasteFromClipboardBtn:hover {
-    background-color: #4a4a4a;
-}
-
-#pasteFromClipboardBtn {
     background-color: #424242;
     color: #aaa;
     border: 1px solid #555;
     transition: all 0.2s ease;
 }
 
-#pasteFromClipboardBtn:hover {
+#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover, #pasteFromClipboardBtn:hover {
     background-color: #505050;
     color: #fff;
     border-color: #007bff;
 }
 
-#pasteFromClipboardBtn:active {
+#clearLastBtn:active, #newCountBtn:active, #instructionBtn:active, #pasteFromClipboardBtn:active {
     transform: scale(0.95);
     background-color: #4a4a4a;
 }
@@ -241,8 +232,4 @@ h2 {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #0056b3;
-}
-
-#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover, #pasteFromClipboardBtn:hover {
-    background-color: #4a4a4a;
 }
