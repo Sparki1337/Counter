@@ -1,7 +1,8 @@
 import os
 import subprocess
 
-target_directory = r "C:\Users\New\Desktop\Программы\Моё\сурсы\Считатель" #(менять на нужную директорию)
+# Путь к директории проекта (изменить при необходимости)
+target_directory = r "C:\Users\New\Desktop\Программы\Моё\сурсы\Считатель"
 
 try:
     os.chdir(target_directory)
