@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const instructionBtn = document.getElementById('instructionBtn');
     const instructionModal = document.getElementById('instructionModal');
     const closeModalBtn = document.querySelector('.close-btn');
+    const pasteFromClipboardBtn = document.getElementById('pasteFromClipboardBtn');
 
     let state = {
         count: 0,
@@ -251,6 +252,17 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', (event) => {
         if (event.target == instructionModal) {
             instructionModal.style.display = 'none';
+        }
+    });
+
+    pasteFromClipboardBtn.addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            dataInput.value = text;
+            statusMessage.textContent = 'Текст вставлен из буфера обмена.';
+        } catch (err) {
+            statusMessage.textContent = 'Не удалось вставить текст: ' + err;
+            console.error('Failed to read clipboard contents: ', err);
         }
     });
     

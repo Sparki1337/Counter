@@ -84,13 +84,13 @@ button:active {
     background-color: #0056b3;
 }
 
-#clearLastBtn, #newCountBtn, #instructionBtn {
+#clearLastBtn, #newCountBtn, #instructionBtn, #pasteFromClipboardBtn {
     flex-grow: 1;
     background-color: #3a3a3a;
     color: #e0e0e0;
     border: 1px solid #555;
 }
-#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover {
+#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover, #pasteFromClipboardBtn:hover {
     background-color: #4a4a4a;
 }
 
@@ -223,4 +223,8 @@ h2 {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #0056b3;
+}
+
+#clearLastBtn:hover, #newCountBtn:hover, #instructionBtn:hover, #pasteFromClipboardBtn:hover {
+    background-color: #4a4a4a;
 }
