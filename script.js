@@ -52,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = `${progressPercentage}%`;
         progressText.textContent = `Обработано: ${state.count} из ${MAX_MESSAGES}`;
         
-        dataInput.value = '';
         statusMessage.textContent = '';
     }
     
@@ -179,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentAdditions.length > 0) {
             state.last_additions = currentAdditions;
             state.count++;
+            dataInput.value = '';
         } else {
             statusMessage.textContent = 'Не удалось найти данные для обработки. Проверьте формат.';
         }
@@ -257,12 +257,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pasteFromClipboardBtn.addEventListener('click', async () => {
         try {
-            const text = await navigator.clipboard.readText();
-            dataInput.value = text;
-            statusMessage.textContent = 'Текст вставлен из буфера обмена.';
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                dataInput.value = text;
+                statusMessage.textContent = 'Текст вставлен из буфера обмена.';
+            } else {
+                fallbackPaste();
+            }
         } catch (err) {
-            statusMessage.textContent = 'Не удалось вставить текст: ' + err;
-            console.error('Failed to read clipboard contents: ', err);
+            console.error('Clipboard error:', err);
+            statusMessage.textContent = `Не удалось вставить текст: ${err.message || 'нет доступа к буферу обмена'}`;
+            fallbackPaste();
+        }
+    });
+    
+    function fallbackPaste() {
+        try {
+            const tempInput = document.createElement('textarea');
+            tempInput.style.position = 'fixed';
+            tempInput.style.opacity = '0';
+            document.body.appendChild(tempInput);
+            tempInput.focus();
+            
+            const successful = document.execCommand('paste');
+            
+            if (successful) {
+                dataInput.value = tempInput.value;
+                statusMessage.textContent = 'Текст вставлен из буфера обмена.';
+            } else {
+                statusMessage.textContent = 'Для вставки текста используйте комбинацию клавиш Ctrl+V';
+                dataInput.focus();
+            }
+            
+            document.body.removeChild(tempInput);
+        } catch (err) {
+            console.error('Fallback paste error:', err);
+            statusMessage.textContent = 'Для вставки текста используйте комбинацию клавиш Ctrl+V';
+            dataInput.focus();
+        }
+    }
+    
+    dataInput.addEventListener('keydown', function(event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+            statusMessage.textContent = 'Текст вставлен с помощью клавиш.';
         }
     });
     
